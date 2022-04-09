@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch._utils
 import torch.nn.functional as F
 
-sys.path.append("lib/models")
+sys.path.append("MDEQVision/lib/models")
 from mdeq_core import MDEQNet
 
 sys.path.append("../")

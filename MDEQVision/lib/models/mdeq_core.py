@@ -19,8 +19,8 @@ import torch._utils
 import torch.nn.functional as F
 import torch.autograd as autograd
 
-sys.path.append("lib/")
-from utils.utils import get_world_size, get_rank
+sys.path.append("MDEQVision/lib/")
+from util.utils import get_world_size, get_rank
 
 sys.path.append("../")
 from lib.optimizations import VariationalHidDropout2d, weight_norm
