@@ -322,8 +322,6 @@ class MDEQNet(nn.Module):
         self.parse_cfg(cfg)
         init_chansize = self.init_chansize
 
-        self.α = torch.nn.Parameter(torch.tensor(0.0))
-
         self.downsample = nn.Sequential(
             conv3x3(3, init_chansize, stride=(2 if self.downsample_times >= 1 else 1)),
             nn.BatchNorm2d(init_chansize, momentum=BN_MOMENTUM, affine=True),
@@ -422,12 +420,7 @@ class MDEQNet(nn.Module):
         func = lambda z: list2vec(self.fullstage(vec2list(z, cutoffs), x_list))
 
         # For variational dropout mask resetting and weight normalization re-computations
-#         print(self.α)
-        act = torch.nn.Sigmoid()
-        α = act(self.α)
         self.fullstage._reset(z_list)
-        # Divide by n
-        drop_loss = 0.5 * torch.log(α) + 1.16145124 * α - 1.50204118 * α ** 2 + 0.58629921 * α ** 3
 
         jac_loss = torch.tensor(0.0).to(x)
         sradius = torch.zeros(bsz, 1).to(x)
@@ -470,7 +463,7 @@ class MDEQNet(nn.Module):
                 self.hook = new_z1.register_hook(backward_hook)
 
         y_list = self.iodrop(vec2list(new_z1, cutoffs))
-        return y_list, jac_loss.view(1,-1), sradius.view(-1,1), drop_loss
+        return y_list, jac_loss.view(1,-1), sradius.view(-1,1)
 
     def forward(self, x, train_step=-1, **kwargs):
         raise NotImplemented    # To be inherited & implemented by MDEQClsNet and MDEQSegNet (see mdeq.py)

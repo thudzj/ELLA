@@ -202,10 +202,7 @@ class VariationalHidDropout2d(VariationalHidDropout):
         if dropout:
             self.dropout = dropout
         if self.spatial:
-#             m = torch.zeros(bsz, d, 1, 1).bernoulli_(1 - self.dropout)
-            m = torch.zeros(bsz, d, 1, 1).normal_(1.0, self.dropout)
-#             sam = torch.distributions.normal.Normal(1.0, self.dropout)
-#             m = sam.sample((bsz, d, 1, 1))
+            m = torch.zeros(bsz, d, 1, 1).bernoulli_(1 - self.dropout)
         else:
             m = torch.zeros(bsz, d, H, W).bernoulli_(1 - self.dropout)
         mask = m.requires_grad_(False) / (1 - self.dropout)

@@ -97,6 +97,22 @@ def parse_args():
 
     return args
 
+def wn(model):
+    # This is the multiscale-deq version of weight norm
+    # I moved it here so that it would not have to be inside forward
+    def _norm(p, dim):
+        output_size = (p.size(0),) + (1,) * (p.dim() - 1)
+        return p.contiguous().view(p.size(0), -1).norm(dim=1).view(*output_size)
+    def compute_weight(module=nn.Conv2d, name='weight'):
+        g = getattr(module, name + '_g')
+        v = getattr(module, name + '_v')
+        return v * (g / _norm(v, 0))
+    for k in model.state_dict().keys():
+        if "weight_g" in k:
+            k = k.replace(".0", "[0]").replace(".1", "[1]").replace(".2", "[2]").replace(".3", "[3]").replace(".weight_g", "")
+            con = "model." + k
+            setattr(eval(con), 'weight', compute_weight(eval(con), 'weight'))
+
 def main():
     args = parse_args()
     args.save_dir = os.path.join(args.save_dir, args.job_id)
@@ -142,6 +158,8 @@ def main():
     if args.pretrained is not None:
         print("Load MAP model from", args.pretrained)
         model.load_state_dict(torch.load(args.pretrained))
+    if args.arch == "mdeq":
+        wn(model)
 
     model.eval()
 
@@ -239,6 +257,7 @@ def batch_grad(model, x_batch, y_batch, args):
         o = model(x.unsqueeze(0))
         model.zero_grad()
         if args.only_target_jacobian:
+            wn(model)
             o.backward(ones[y.item()].view(1, -1))
             g = torch.cat([p.grad.flatten() for p in model.parameters()]).cpu()
             g_batch[i] = g
