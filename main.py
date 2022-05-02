@@ -77,6 +77,8 @@ def main():
 		elif args.dataset == 'imagenet':
 			if os.path.isdir('/data/LargeData/Large/ImageNet/'):
 				args.data_root = '/data/LargeData/Large/ImageNet/'
+			elif os.path.isdir('/workspace/home/zhijie/ImageNet/'):
+				args.data_root = '/workspace/home/zhijie/ImageNet/'
 		elif args.dataset == 'mnist':
 			if os.path.isdir('/data/LargeData/Regular/'):
 				args.data_root = '/data/LargeData/Regular/'
