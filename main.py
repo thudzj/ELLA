@@ -17,6 +17,7 @@ import torch.nn.functional as F
 
 import torchvision.models as models
 import pytorch_cifar_models
+import timm
 
 from data import data_loaders, subsample
 from utils import count_parameters, _ECELoss, build_dual_params_list, jac, \
@@ -43,7 +44,8 @@ parser.add_argument('--save-dir', dest='save_dir',
 					help='The directory used to save the trained models',
 					default='./logs/', type=str)
 parser.add_argument('--job-id', default='default', type=str)
-parser.add_argument('--resume', default=None, type=str)
+parser.add_argument('--resume-dual-params', default=None, type=str)
+parser.add_argument('--resume-cov-inv', default=None, type=str)
 
 parser.add_argument('--K', default=10, type=int)
 parser.add_argument('--M', default=100, type=int, help='the number of samples')
@@ -59,6 +61,8 @@ parser.add_argument('--ntk-std-scale', default=1, type=float)
 
 parser.add_argument('--check', action='store_true', default=False)
 parser.add_argument('--measure-speed', action='store_true', default=False)
+parser.add_argument('--track-test-results', action='store_true', default=False)
+
 
 def main():
 	args = parser.parse_args()
@@ -94,6 +98,7 @@ def main():
 
 	train_loader_noaug, val_loader, test_loader = data_loaders(args,
 		valid_size=0.01 if args.dataset == 'imagenet' else 0.2, noaug=True)
+	print("Number of training data", len(train_loader_noaug.dataset))
 
 	if args.arch == 'mnist_model':
 		model = ConvNet(args.num_classes).to(device)
@@ -101,6 +106,9 @@ def main():
 		model = pytorch_cifar_models.__dict__[args.arch](pretrained=True).to(device)
 	elif args.arch in models.__dict__:
 		model = models.__dict__[args.arch](pretrained=True).to(device)
+	elif 'vit' in args.arch:
+		assert args.dataset == 'imagenet'
+		model = timm.create_model(args.arch, pretrained=True).to(device)
 	elif args.arch == "small_deq":
 		from modules.model import ResDEQ
 		model = ResDEQ(3, 48, 64, args.num_classes).float().to(device)
@@ -117,35 +125,42 @@ def main():
 	print("---------MAP model ---------")
 	test(test_loader, model, device, args)
 
-	###### ella ######
 	model_bk = copy.deepcopy(model)
 
+	###### ella ######
 	## check the approximation error
 	if args.check:
 		check_approx_error(args, model, params, train_loader_noaug, val_loader, device)
 
-	if args.resume:
-		if args.resume == 'auto':
-			args.resume = os.path.join(args.save_dir, 'best.tar.gz')
-		ckpt = torch.load(args.resume)
-		best_cov_inv = ckpt['cov_inv'].to(device)
-		dual_params_list = [{k:v.to(device) for k,v in dual_params.items()} for dual_params in ckpt['dual_params_list']]
-		print("==> Load from {}, the previously best test results\n    {}".format(args.resume, ckpt['best_test_results']))
-
-		Psi = partial(Psi_raw, model, params, dual_params_list)
+	if args.resume_dual_params is not None:
+		if args.resume_dual_params == 'auto':
+			args.resume_dual_params = os.path.join(args.save_dir, 'dual_params.tar.gz')
+		ckpt = torch.load(args.resume_dual_params)
+		dual_params_list = [{k:v.to(device) for k,v in dual_params.items()} for dual_params in ckpt['0']]
 	else:
 		x_subsample, y_subsample = subsample(train_loader_noaug, args.num_classes,
 											 args.M, args.balanced,
 											 device, verbose=True)
-		J_x_subsample = jac(model, x_subsample, y_subsample,
-							args.num_classes, random=args.random,
-							dtype=torch.half if args.dataset == 'imagenet' else torch.float32)
-		dual_params_list = build_dual_params_list(J_x_subsample, args.K,
-												  params, verbose=True)
-		Psi = partial(Psi_raw, model, params, dual_params_list)
+		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=100, verbose=True)
+		torch.save({
+			'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
+		}, os.path.join(args.save_dir, 'dual_params.tar.gz'))
 
+	if args.measure_speed:
+		x, y = subsample(train_loader_noaug, args.num_classes, args.batch_size, False, device, verbose=False)
+		measure_speed(model, params, dual_params_list, model_bk, x, y)
+
+	Psi = partial(Psi_raw, model, params, dual_params_list)
+
+	if args.resume_cov_inv is not None:
+		if args.resume_cov_inv == 'auto':
+			args.resume_cov_inv = os.path.join(args.save_dir, 'cov_inv.tar.gz')
+		ckpt = torch.load(args.resume_cov_inv)
+		best_cov_inv = ckpt['0'].to(device)
+	else:
 		## pass the training set
 		best_value = 1e8; best_cov_inv = None; best_test_results = None
+		test_results_list = []
 		with torch.no_grad():
 			cov = torch.zeros(args.K, args.K).cuda(non_blocking=True)
 			for i, (x, y) in enumerate(train_loader_noaug):
@@ -157,9 +172,12 @@ def main():
 
 				if args.search_freq and (i + 1) * args.batch_size % args.search_freq == 0:
 					cov_clone = cov.data.clone()
-					cov_clone.diagonal().add_(1/args.sigma2)
+					cov_clone.diagonal().add_(1 / args.sigma2 * (i + 1) * args.batch_size / len(train_loader_noaug.dataset))
 					cov_inv = cov_clone.inverse()
 					val_loss, _, _ = ella_test(val_loader, model, device, args, Psi, cov_inv, verbose=True)
+					if args.track_test_results:
+						test_loss, test_acc, test_ece = ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=False)
+						test_results_list.append(np.array([(i + 1) * args.batch_size, test_loss, test_acc, test_ece]))
 					if val_loss < best_value:
 						best_value = val_loss
 						best_cov_inv = cov_inv
@@ -167,19 +185,15 @@ def main():
 						best_test_results = "Test results: Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}".format(test_loss, test_acc, test_ece)
 
 						torch.save({
-							'cov_inv': best_cov_inv.data.cpu(),
-							'dual_params_list': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
-							'best_test_results': best_test_results
-						}, os.path.join(args.save_dir, 'best.tar.gz'))
+							'0': best_cov_inv.data.cpu(),
+						}, os.path.join(args.save_dir, 'cov_inv.tar.gz'))
 
 					print("Current training data {}, loss: {:.4f}, best loss: {:.4f}"
 						  "\n    {}".format((i + 1) * args.batch_size, val_loss, best_value, best_test_results))
-			# cov.diagonal().add_(1/args.sigma2)
-			# cov_inv = cov.inverse()
 
-	if args.measure_speed:
-		x, y = subsample(train_loader_noaug, args.num_classes, args.batch_size, False, device)
-		measure_speed(model, params, dual_params_list, model_bk, x, y)
+		if args.track_test_results:
+			test_results_list = np.stack(test_results_list)
+			np.save(args.save_dir + '/test_results.npy', test_results_list)
 
 	print("--------- LLA ---------")
 	ella_test(test_loader, model, device, args, Psi, best_cov_inv)

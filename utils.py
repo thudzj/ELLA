@@ -4,12 +4,15 @@ import os
 import time
 from tqdm import tqdm
 import copy
+import math
+import gc
 
 import torch
 import torch.nn as nn
 import torch.autograd.forward_ad as fwAD
 
 from functools import partial
+import threading
 
 from data import subsample
 
@@ -127,7 +130,7 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
 			jitter = 1e-6 if A.dtype == torch.float32 else 1e-8
 		Aprime = A.clone()
 		jitter_prev = 0
-		for i in range(5):
+		for i in range(6):
 			jitter_new = jitter * (10 ** i)
 			Aprime.diagonal(dim1=-2, dim2=-1).add_(jitter_new - jitter_prev)
 			jitter_prev = jitter_new
@@ -143,42 +146,68 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
 		raise e
 
 @torch.enable_grad()
-def jac(model, xs, ys, num_classes, full=False, random=True, dtype=torch.float32):
+def jac(model, xs, ys, num_classes, full=False, dtype=torch.float32):
 	I = torch.eye(num_classes).to(xs.device)
 	Js = torch.zeros(xs.shape[0] * (num_classes if full else 1),
-					 count_parameters(model), dtype=dtype)
-	for i, (x, y) in tqdm(enumerate(zip(xs, ys)), desc='Estimating Jacobian',
-						  total=xs.shape[0]):
+					 count_parameters(model), dtype=dtype, device=xs.device)
+	for i, (x, y) in enumerate(zip(xs, ys)):
 		o = model(x.unsqueeze(0))
 		model.zero_grad()
 		if full:
 			for j in range(num_classes):
 				o.backward(I[j].view(1, -1), retain_graph = False
 					if j == num_classes - 1 else True)
-				g = torch.cat([p.grad.flatten() for p in model.parameters()]).cpu()
+				g = torch.cat([p.grad.flatten() for p in model.parameters()])
 				Js[i * num_classes + j] = g
 				model.zero_grad()
 		else:
-			grad_in = I[np.random.randint(num_classes) if random else y.item()].view(1, -1)
+			grad_in = I[y.item()].view(1, -1)
 			o.backward(grad_in)
-			g = torch.cat([p.grad.flatten() for p in model.parameters()]).cpu()
+			g = torch.cat([p.grad.flatten() for p in model.parameters()])
 			Js[i] = g
 	return Js
 
-def build_dual_params_list(Js, K, params, verbose=False):
-	p, q = psd_safe_eigen(torch.einsum('np,mp->nm', Js, Js).float())
-	p = p[range(-1, -(K+1), -1)]
-	q = q[:, range(-1, -(K+1), -1)]
-	q = (Js.T @ q.type_as(Js) / p.type_as(Js).sqrt()).T.float()
-	p = (p / Js.shape[0])
-	del Js
+def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=1, verbose=True):
+	indices = torch.rand(x_subsample.shape[0], args.num_classes).argmax(1).long() if args.random else y_subsample
+	if num_batches == 1:
+		Js = jac(model, x_subsample, indices, args.num_classes)
+		mat = Js @ Js.T
+	else:
+		mat = torch.empty(x_subsample.shape[0], x_subsample.shape[0], device=x_subsample.device)
+		s = x_subsample.shape[0] // num_batches
+		for i in tqdm(range(0, x_subsample.shape[0], s), desc='Doing matmul', total=num_batches):
+			ii = min(i + s, x_subsample.shape[0])
+			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], args.num_classes)
+
+			for j in range(0, x_subsample.shape[0], s):
+				jj = min(j + s, x_subsample.shape[0])
+				Js_b2 = jac(model, x_subsample[j:jj], indices[j:jj], args.num_classes)
+				mat[i:ii, j:jj] = Js_b @ Js_b2.T
+				# print(i, j, torch.dist(Js_b, Js1[i:ii]), torch.dist(Js_b2, Js1[j:jj]), torch.dist(mat[i:ii, j:jj], mat1[i:ii, j:jj]))
+				# print(mat[i:ii, j:jj], mat1[i:ii, j:jj])
+
+	p, q = psd_safe_eigen(mat)
+	p = p[range(-1, -(args.K+1), -1)]
+	q = q[:, range(-1, -(args.K+1), -1)]
+	tmp = q.div(p.sqrt())
+	p = (p / x_subsample.shape[0])
+
+	if num_batches == 1:
+		V = Js.T @ tmp
+	else:
+		V = torch.zeros(count_parameters(model), args.K, device=tmp.device)
+		s = x_subsample.shape[0] // num_batches
+		for i in tqdm(range(0, x_subsample.shape[0], s), desc='Doing matmul', total=num_batches):
+			ii = min(i + s, x_subsample.shape[0])
+			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], args.num_classes)
+			V += Js_b.T @ tmp[i:ii]
 
 	if verbose:
 	   print('eigenvalues: ', p)
-	   # print(q.norm(dim=1, p=2))
+	   # print(V.norm(dim=1, p=2))
 
 	dual_params_list = []
-	for item in q:
+	for item in V.T:
 		dual_params = {}
 		start = 0
 		for name, param in params.items():
@@ -406,3 +435,64 @@ def measure_speed(model, params, dual_params_list, model_bk, x, y, runs=500):
 
 	print("Time cost comparison {:.4f} vs. {:.4f} ({:.4f}K times)".format(
 		(t3-t2)/500, (t1-t0)/500, (t3-t2)/(t1-t0)))
+
+def do_dot(a, b, out):
+	out[:] = torch.matmul(a, b)
+
+# def parallel_mm(a, b, nblocks, mblocks=1, use_gpu=False):
+# 	"""
+# 	Return the matrix product a @ b.
+# 	"""
+# 	bT = b.T
+# 	# assert a.shape[0] % nblocks == 0 and bT.shape[0] % mblocks == 0
+# 	s = a.shape[0]//nblocks
+# 	t = bT.shape[0]//mblocks
+#
+# 	#a_blocks = a.view(nblocks, s, a.shape[1])
+# 	#bT_blocks = bT.view(mblocks, t, bT.shape[1])
+# 	out = torch.empty((a.shape[0], bT.shape[0]))
+# 	if use_gpu:
+# 		for i in tqdm(range(0, a.shape[0], s), desc='Doing matmul', total=nblocks):
+# 			m1 = a[i:min(i + s, a.shape[0])].cuda(non_blocking=True).float()
+# 			for j in range(0, bT.shape[0], t):
+# 				with torch.no_grad():
+# 					m2 = bT[j:min(j + t, bT.shape[0])].cuda(non_blocking=True).float()
+# 				out[i:min(i + s, a.shape[0]), j:min(j + t, bT.shape[0])] = (m1 @ m2.T).cpu()
+# 		del m1, m2
+# 	else:
+# 		threads = []
+# 		for i in tqdm(range(0, a.shape[0], s), desc='Doing matmul', total=nblocks):
+# 			for j in range(0, bT.shape[0], t):
+# 				th = threading.Thread(target=do_dot,
+# 									  args=(a[i:min(i + s, a.shape[0])].float(),
+# 											bT[j:min(j + t, bT.shape[0])].float().T,
+# 											out[i:min(i + s, a.shape[0]), j:min(j + t, bT.shape[0])]))
+# 				th.start()
+# 				threads.append(th)
+#
+# 		for th in threads:
+# 			th.join()
+#
+# 	return out
+
+if __name__ == '__main__':
+	a = torch.randn(3333, 1111)
+
+	b = torch.randn(1111, 222)
+
+	start = time.time()
+	r1 = parallel_mm(a, b, 13, 13, True)
+	time_par = time.time() - start
+	print('parallel_mm: {:.2f} seconds taken'.format(time_par))
+
+	start = time.time()
+	r2 = torch.matmul(a, b)
+	time_dot = time.time() - start
+	print('torch.matmul: {:.2f} seconds taken'.format(time_dot))
+
+	# print(r1[:10, :10])
+	# print(r2[:10, :10])
+	# print(r1[-10:, -10:])
+	# print(r2[-10:, -10:])
+
+	assert torch.allclose(r1, r2, atol=1e-4), 'dist is {}/{}'.format(torch.dist(r1, r2).item(), torch.dist(r1, torch.zeros_like(r1)).item())

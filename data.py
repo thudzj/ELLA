@@ -117,10 +117,10 @@ def cifar_loaders(args, valid_size=None, noaug=None):
 			# transforms.ToTensor(),
 			# normalize,
 			# Cutout(16),
-			transforms.RandomResizedCrop(size=32, scale=(0.5, 1.)),
+			transforms.RandomResizedCrop(size=32, scale=(0.6, 1.)),
 			# transforms.RandomGrayscale(p=0.2),
 			# transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
-			transforms.RandomHorizontalFlip(),
+			# transforms.RandomHorizontalFlip(),
 			transforms.ToTensor(),
 			normalize,
 			# Cutout(2),
@@ -136,15 +136,27 @@ def cifar_loaders(args, valid_size=None, noaug=None):
 
 		train_loader = torch.utils.data.DataLoader(
 			train_dataset, batch_size=args.batch_size, sampler=train_sampler,
-			num_workers=args.workers, pin_memory=True)
+			num_workers=args.workers, pin_memory=False)
 		val_loader = torch.utils.data.DataLoader(
 			valid_dataset, batch_size=args.batch_size, sampler=valid_sampler,
+			num_workers=args.workers, pin_memory=False)
+
+		# remove the randomness
+		xs, ys = [], []
+		for _ in range(1):
+			for x, y in val_loader:
+				xs.append(x); ys.append(y)
+		xs = torch.cat(xs); ys = torch.cat(ys)
+		valid_dataset = torch.utils.data.TensorDataset(xs, ys)
+		val_loader = torch.utils.data.DataLoader(
+			valid_dataset, batch_size=args.batch_size, shuffle=False,
 			num_workers=args.workers, pin_memory=True)
+
 		return train_loader, val_loader, test_loader
 	else:
 		train_loader = torch.utils.data.DataLoader(
 			train_dataset, batch_size=args.batch_size, shuffle=True,
-			num_workers=args.workers, pin_memory=True)
+			num_workers=args.workers, pin_memory=False)
 		return train_loader, test_loader
 
 class Cutout(object):
@@ -205,12 +217,12 @@ def imagenet_loaders(args, valid_size=None, noaug=None):
 		valid_dataset = datasets.ImageFolder(os.path.join(args.data_root, 'train'),
 			transform=create_transform(
 				input_size=224,
-				# scale=(args.scale[0], args.scale[1]),
+				scale=(0.08, 0.1),
 				is_training=True,
-				color_jitter=0,
-				auto_augment='rand-m9-mstd0.5-inc1', #'v0', 'original'
+				color_jitter=0.4,
+				auto_augment=None, #'original', #'v0' #'rand-m9-mstd0.5-inc1', #'v0', 'original'
 				interpolation='bicubic',
-				re_prob=0,
+				re_prob=0.25, #0.25,
 	            re_mode='pixel',
 	            re_count=1,
 				mean=IMAGENET_DEFAULT_MEAN,
@@ -228,13 +240,24 @@ def imagenet_loaders(args, valid_size=None, noaug=None):
 
 		train_loader = torch.utils.data.DataLoader(
 			train_dataset, batch_size=args.batch_size, sampler=train_sampler,
-			num_workers=args.workers, pin_memory=True)
+			num_workers=args.workers, pin_memory=False)
 		val_loader = torch.utils.data.DataLoader(
 			valid_dataset, batch_size=args.batch_size, sampler=valid_sampler,
+			num_workers=args.workers, pin_memory=False)
+
+		xs, ys = [], []
+		for _ in range(1):
+			for x, y in val_loader:
+				xs.append(x); ys.append(y)
+		xs = torch.cat(xs); ys = torch.cat(ys)
+		valid_dataset = torch.utils.data.TensorDataset(xs, ys)
+		val_loader = torch.utils.data.DataLoader(
+			valid_dataset, batch_size=args.batch_size, shuffle=False,
 			num_workers=args.workers, pin_memory=True)
+
 		return train_loader, val_loader, test_loader
 	else:
 		train_loader = torch.utils.data.DataLoader(
 			train_dataset, batch_size=args.batch_size, shuffle=True,
-			num_workers=args.workers, pin_memory=True)
+			num_workers=args.workers, pin_memory=False)
 		return train_loader, test_loader
