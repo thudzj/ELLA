@@ -142,8 +142,8 @@ def main():
 	else:
 		x_subsample, y_subsample = subsample(train_loader_noaug, args.num_classes,
 											 args.M, args.balanced,
-											 device, verbose=True)
-		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=200 if 'vit_large' in args.arch else 100, verbose=True)
+											 device, verbose=False)
+		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=200 if 'vit_large' in args.arch else 100)
 		torch.save({
 			'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
 		}, os.path.join(args.save_dir, 'dual_params.tar.gz'))

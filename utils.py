@@ -185,7 +185,7 @@ def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_ba
 				mat[i:ii, j:jj] = Js_b @ Js_b2.T
 				# print(i, j, torch.dist(Js_b, Js1[i:ii]), torch.dist(Js_b2, Js1[j:jj]), torch.dist(mat[i:ii, j:jj], mat1[i:ii, j:jj]))
 				# print(mat[i:ii, j:jj], mat1[i:ii, j:jj])
-		del Js_b2
+		del Js_b, Js_b2
 
 	p, q = psd_safe_eigen(mat)
 	p = p[range(-1, -(args.K+1), -1)]
@@ -202,6 +202,7 @@ def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_ba
 			ii = min(i + s, x_subsample.shape[0])
 			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], args.num_classes)
 			V += Js_b.T @ tmp[i:ii]
+		del Js_b
 
 	if verbose:
 	   print('eigenvalues: ', p)
