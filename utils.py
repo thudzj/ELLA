@@ -185,6 +185,7 @@ def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_ba
 				mat[i:ii, j:jj] = Js_b @ Js_b2.T
 				# print(i, j, torch.dist(Js_b, Js1[i:ii]), torch.dist(Js_b2, Js1[j:jj]), torch.dist(mat[i:ii, j:jj], mat1[i:ii, j:jj]))
 				# print(mat[i:ii, j:jj], mat1[i:ii, j:jj])
+		del Js_b2
 
 	p, q = psd_safe_eigen(mat)
 	p = p[range(-1, -(args.K+1), -1)]
@@ -211,8 +212,7 @@ def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_ba
 		dual_params = {}
 		start = 0
 		for name, param in params.items():
-			dual_params[name] = item[start:start+param.numel()].view_as(
-				param).to(param.device)
+			dual_params[name] = item[start:start+param.numel()].view_as(param) #.to(param.device)
 			start += param.numel()
 		dual_params_list.append(dual_params)
 	return dual_params_list

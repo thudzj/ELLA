@@ -28,3 +28,5 @@
     python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --search-freq 100 --dataset imagenet --arch resnet50
             MAP: Average loss: 0.9616, Accuracy: 0.7615, ECE: 0.0369
             Our: Average loss: 0.9458, Accuracy: 0.7615, ECE: 0.0137
+
+    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --search-freq 100 --dataset imagenet --arch vit_base_patch16_224
