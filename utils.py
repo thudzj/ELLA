@@ -130,7 +130,7 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
 			jitter = 1e-6 if A.dtype == torch.float32 else 1e-8
 		Aprime = A.clone()
 		jitter_prev = 0
-		for i in range(6):
+		for i in range(7):
 			jitter_new = jitter * (10 ** i)
 			Aprime.diagonal(dim1=-2, dim2=-1).add_(jitter_new - jitter_prev)
 			jitter_prev = jitter_new
