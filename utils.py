@@ -148,8 +148,7 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
 @torch.enable_grad()
 def jac(model, xs, ys, num_classes, full=False, dtype=torch.float32):
 	I = torch.eye(num_classes).to(xs.device)
-	Js = torch.zeros(xs.shape[0] * (num_classes if full else 1),
-					 count_parameters(model), dtype=dtype, device=xs.device)
+	Js = []
 	for i, (x, y) in enumerate(zip(xs, ys)):
 		o = model(x.unsqueeze(0))
 		model.zero_grad()
@@ -158,17 +157,17 @@ def jac(model, xs, ys, num_classes, full=False, dtype=torch.float32):
 				o.backward(I[j].view(1, -1), retain_graph = False
 					if j == num_classes - 1 else True)
 				g = torch.cat([p.grad.flatten() for p in model.parameters()])
-				Js[i * num_classes + j] = g
+				Js.append(g)
 				model.zero_grad()
 		else:
 			grad_in = I[y.item()].view(1, -1)
 			o.backward(grad_in)
 			g = torch.cat([p.grad.flatten() for p in model.parameters()])
-			Js[i] = g
-	return Js
+			Js.append(g)
+	return torch.stack(Js)
 
 def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=1, verbose=True):
-	indices = torch.rand(x_subsample.shape[0], args.num_classes).argmax(1).long() if args.random else y_subsample
+	indices = torch.empty_like(y_subsample).random_(args.num_classes) if args.random else y_subsample
 	if num_batches == 1:
 		Js = jac(model, x_subsample, indices, args.num_classes)
 		mat = Js @ Js.T
@@ -304,10 +303,24 @@ def check_approx_error(args, model, params, train_loader_noaug, val_loader, devi
 	for i, M in enumerate([4, 8, 16, 32, 64, 128, 256, 512, 1024, 2000]):
 		J_x_subsample = jac(model, x_full[:M], y_full[:M],
 							args.num_classes, random=args.random)
+		mat = J_x_subsample @ J_x_subsample.T
+		p, q = psd_safe_eigen(mat)
 		for j, K in enumerate([4, 8, 16, 32, 64, 128, 256, 512, 1024, 2000]):
 			if K > M:
 				continue
-			dual_params_list = build_dual_params_list(J_x_subsample, K, params)
+
+			p = p[range(-1, -(K+1), -1)]
+			q = q[:, range(-1, -(K+1), -1)]
+			tmp = q.div(p.sqrt())
+			V = Js.T @ tmp
+			dual_params_list = []
+			for item in V.T:
+				dual_params = {}
+				start = 0
+				for name, param in params.items():
+					dual_params[name] = item[start:start+param.numel()].view_as(param) #.to(param.device)
+					start += param.numel()
+				dual_params_list.append(dual_params)
 			Psi = partial(Psi_raw, model2, params, dual_params_list)
 
 			psi_full = Psi(x_full).cpu()
@@ -437,8 +450,8 @@ def measure_speed(model, params, dual_params_list, model_bk, x, y, runs=500):
 	print("Time cost comparison {:.4f} vs. {:.4f} ({:.4f}K times)".format(
 		(t3-t2)/500, (t1-t0)/500, (t3-t2)/(t1-t0)))
 
-def do_dot(a, b, out):
-	out[:] = torch.matmul(a, b)
+# def do_dot(a, b, out):
+# 	out[:] = torch.matmul(a, b)
 
 # def parallel_mm(a, b, nblocks, mblocks=1, use_gpu=False):
 # 	"""
@@ -475,6 +488,15 @@ def do_dot(a, b, out):
 # 			th.join()
 #
 # 	return out
+
+
+def remove_wn(deq_model):
+	for i, branch in enumerate(deq_model.fullstage.branches):
+		for block in branch.blocks:
+			block._wnorm()
+			block.conv1_fn.remove(block.conv1)
+			block.conv2_fn.remove(block.conv2)
+		deq_model.fullstage.post_fuse_fns[i].remove(deq_model.fullstage.post_fuse_layers[i].conv)
 
 if __name__ == '__main__':
 	a = torch.randn(3333, 1111)

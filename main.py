@@ -49,6 +49,7 @@ parser.add_argument('--resume-cov-inv', default=None, type=str)
 
 parser.add_argument('--K', default=10, type=int)
 parser.add_argument('--M', default=100, type=int, help='the number of samples')
+parser.add_argument('--I', default=1, type=int, help='the number of samples')
 parser.add_argument('--balanced', action='store_true', default=False)
 parser.add_argument('--not-random', action='store_true', default=False)
 
@@ -69,6 +70,9 @@ def main():
 	args.save_dir = os.path.join(args.save_dir, args.dataset, args.arch, args.job_id)
 	args.num_classes = 10 if args.dataset in ['mnist', 'cifar10'] else (100 if args.dataset == 'cifar100' else 1000)
 	args.random = not args.not_random
+
+	if args.M < args.num_classes:
+		args.balanced = False
 
 	if args.data_root is None:
 		if 'cifar' in args.dataset:
@@ -143,7 +147,7 @@ def main():
 		x_subsample, y_subsample = subsample(train_loader_noaug, args.num_classes,
 											 args.M, args.balanced,
 											 device, verbose=False)
-		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=200 if 'vit_large' in args.arch else 100)
+		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=args.I)
 		torch.save({
 			'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
 		}, os.path.join(args.save_dir, 'dual_params.tar.gz'))

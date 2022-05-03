@@ -4,29 +4,30 @@
 ---------------cifar 10------------------
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet20 --track-test-results
             MAP: Average loss: 0.2815, Accuracy: 0.9260, ECE: 0.0390
-            Our: Average loss: 0.2329, Accuracy: 0.9260, ECE: 0.0092
+            Our: Average loss: 0.2331, Accuracy: 0.9258, ECE: 0.0092
 
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet32  --track-test-results
             MAP: Average loss: 0.2921, Accuracy: 0.9353, ECE: 0.0408
-            Our: Average loss: 0.2182, Accuracy: 0.9343, ECE: 0.0074
+            Our: Average loss: 0.2161, Accuracy: 0.9349, ECE: 0.0082
 
-    python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet44  --track-test-results
+    python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --I 4 --search-freq 1000 --arch cifar10_resnet44  --track-test-results
             MAP: Average loss: 0.2753, Accuracy: 0.9401, ECE: 0.0385
             Our: Average loss: 0.2022, Accuracy: 0.9399, ECE: 0.0073
 
-    python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet56 --track-test-results
+    python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --I 4 --search-freq 1000 --arch cifar10_resnet56 --track-test-results
             MAP: Average loss: 0.2523, Accuracy: 0.9437, ECE: 0.0374
-            Our: Average loss: 0.1890, Accuracy: 0.9440, ECE: 0.0082
+            Our: Average loss: 0.1866, Accuracy: 0.9440, ECE: 0.0065
 
 
 ---------------ImageNet------------------
-    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --search-freq 100 --dataset imagenet --arch resnet18
+    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --I 100 --search-freq 100 --dataset imagenet --arch resnet18
             MAP: Average loss: 1.2469, Accuracy: 0.6976, ECE: 0.0263
-            Our: Average loss: 1.2432, Accuracy: 0.6976, ECE: 0.0160
+            Our: Average loss: 1.2431, Accuracy: 0.6982, ECE: 0.0163
 
+    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --I 100 --search-freq 100 --dataset imagenet --arch resnet34
+            MAP: Average loss: 1.0810, Accuracy: 0.7330, ECE: 0.0354
+            Our: Average loss: 1.0709, Accuracy: 0.7336, ECE: 0.0141
 
-    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --search-freq 100 --dataset imagenet --arch resnet50
+    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --I 100 --search-freq 100 --dataset imagenet --arch resnet50
             MAP: Average loss: 0.9616, Accuracy: 0.7615, ECE: 0.0369
-            Our: Average loss: 0.9458, Accuracy: 0.7615, ECE: 0.0137
-
-    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --search-freq 100 --dataset imagenet --arch vit_base_patch16_224
+            Our: Average loss: 0.9479, Accuracy: 0.7615, ECE: 0.0179

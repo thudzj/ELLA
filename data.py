@@ -117,7 +117,7 @@ def cifar_loaders(args, valid_size=None, noaug=None):
 			# transforms.ToTensor(),
 			# normalize,
 			# Cutout(16),
-			transforms.RandomResizedCrop(size=32, scale=(0.6, 1.)),
+			transforms.RandomResizedCrop(size=32, scale=(0.6 if args.arch == 'cifar10_resnet44' else 0.5, 1.)),
 			# transforms.RandomGrayscale(p=0.2),
 			# transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
 			# transforms.RandomHorizontalFlip(),
