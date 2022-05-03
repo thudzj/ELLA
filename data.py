@@ -183,25 +183,29 @@ class Cutout(object):
 
 def imagenet_loaders(args, valid_size=None, noaug=None):
 
-	normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-									 std=[0.229, 0.224, 0.225])
+	if 'vit' in args.arch:
+		normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
+										 std=[0.5, 0.5, 0.5])
+	else:
+		normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+										 std=[0.229, 0.224, 0.225])
 	if noaug:
 		T = transforms.Compose([
-			transforms.Resize(256),
+			transforms.Resize(224 if 'vit' in args.arch else 256, interpolation=transforms.InterpolationMode.BICUBIC if 'vit' in args.arch else transforms.InterpolationMode.BILINEAR),
 			transforms.CenterCrop(224),
 			transforms.ToTensor(),
 			normalize,
 		])
 	else:
 		T = transforms.Compose([
-			transforms.RandomResizedCrop(224),
+			transforms.RandomResizedCrop(224, interpolation=transforms.InterpolationMode.BICUBIC if 'vit' in args.arch else transforms.InterpolationMode.BILINEAR),
 			transforms.RandomHorizontalFlip(),
 			transforms.ToTensor(),
 			normalize,
 		])
 
 	T_val = transforms.Compose([
-		transforms.Resize(256),
+		transforms.Resize(224 if 'vit' in args.arch else 256, interpolation=transforms.InterpolationMode.BICUBIC if 'vit' in args.arch else transforms.InterpolationMode.BILINEAR),
 		transforms.CenterCrop(224),
 		transforms.ToTensor(),
 		normalize,
