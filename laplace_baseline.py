@@ -20,7 +20,7 @@ import pytorch_cifar_models
 import timm
 
 from data import data_loaders
-from utils import count_parameters, _ECELoss, ConvNet
+from utils import count_parameters, _ECELoss, ConvNet, fuse_bn_recursively
 
 from laplace import Laplace
 
@@ -110,6 +110,8 @@ def main():
 		model.load_state_dict(torch.load(args.pretrained))
 
 	model.eval()
+	if args.hessian_structure == 'kron':
+		model = fuse_bn_recursively(model)
 	print("---------MAP model ---------")
 	test(test_loader, model, device, args)
 
@@ -119,10 +121,10 @@ def main():
 				 subset_of_weights=args.subset_of_weights,
 				 hessian_structure=args.hessian_structure)
 	la.fit(train_loader_noaug)
-	la.optimize_prior_precision(method='marglik', link_approx='mc', n_samples=args.K)
+	la.optimize_prior_precision(method='marglik', pred_type='glm', link_approx='mc', n_samples=args.K)
 	test(test_loader, la, device, args, laplace=True)
 
-	if 'cifar' in args.dataset:
+	if args.dataset in ['cifar10', 'cifar100', 'imagenet']:
 		print("--------- MAP on corrupted_data ---------")
 		eval_corrupted_data(model, device, args, token='map')
 
@@ -163,35 +165,66 @@ def test(test_loader, model, device, args, laplace=False, verbose=True):
 	return loss, acc, ece
 
 def eval_corrupted_data(model, device, args, laplace=False, token=''):
-	if args.dataset == 'cifar10':
-		corrupted_data_path = './CIFAR-10-C/CIFAR-10-C'
-		mean=torch.tensor([0.4914, 0.4822, 0.4465])
-		std=torch.tensor([0.2023, 0.1994, 0.201])
-	else:
-		corrupted_data_path = './CIFAR-100-C/CIFAR-100-C'
-		mean=torch.tensor([0.507, 0.4865, 0.4409])
-		std=torch.tensor([0.2673, 0.2564, 0.2761])
+	if 'cifar' in args.dataset:
+		if args.dataset == 'cifar10':
+			corrupted_data_path = './CIFAR-10-C/CIFAR-10-C'
+			mean=torch.tensor([0.4914, 0.4822, 0.4465])
+			std=torch.tensor([0.2023, 0.1994, 0.201])
+		else:
+			corrupted_data_path = './CIFAR-100-C/CIFAR-100-C'
+			mean=torch.tensor([0.507, 0.4865, 0.4409])
+			std=torch.tensor([0.2673, 0.2564, 0.2761])
 
-	corrupted_data_files = os.listdir(corrupted_data_path)
-	corrupted_data_files.remove('labels.npy')
-	if 'README.txt' in corrupted_data_files:
-		corrupted_data_files.remove('README.txt')
-	results = np.zeros((5, len(corrupted_data_files), 3))
-	labels = torch.from_numpy(np.load(os.path.join(corrupted_data_path, 'labels.npy'), allow_pickle=True)).long()
-	for ii, corrupted_data_file in enumerate(corrupted_data_files):
-		corrupted_data = np.load(os.path.join(corrupted_data_path, corrupted_data_file), allow_pickle=True)
-		for i in range(5):
-			print(corrupted_data_file, i)
-			images = torch.from_numpy(corrupted_data[i*10000:(i+1)*10000]).float().permute(0, 3, 1, 2)/255.
-			images = (images - mean.view(1, 3, 1, 1)) / std.view(1, 3, 1, 1)
-			corrupted_dataset = torch.utils.data.TensorDataset(images, labels[i*10000:(i+1)*10000])
-			corrupted_loader = torch.utils.data.DataLoader(corrupted_dataset,
-				batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers,
-				pin_memory=False, sampler=None, drop_last=False)
-			test_loss, top1, ece = test(corrupted_loader, model, device, args, laplace=laplace, verbose=False)
-			results[i, ii] = np.array([test_loss, top1, ece])
+		corrupted_data_files = os.listdir(corrupted_data_path)
+		corrupted_data_files.remove('labels.npy')
+		if 'README.txt' in corrupted_data_files:
+			corrupted_data_files.remove('README.txt')
+		results = np.zeros((5, len(corrupted_data_files), 3))
+		labels = torch.from_numpy(np.load(os.path.join(corrupted_data_path, 'labels.npy'), allow_pickle=True)).long()
+		for ii, corrupted_data_file in enumerate(corrupted_data_files):
+			corrupted_data = np.load(os.path.join(corrupted_data_path, corrupted_data_file), allow_pickle=True)
+			for i in range(5):
+				print(corrupted_data_file, i)
+				images = torch.from_numpy(corrupted_data[i*10000:(i+1)*10000]).float().permute(0, 3, 1, 2)/255.
+				images = (images - mean.view(1, 3, 1, 1)) / std.view(1, 3, 1, 1)
+				corrupted_dataset = torch.utils.data.TensorDataset(images, labels[i*10000:(i+1)*10000])
+				corrupted_loader = torch.utils.data.DataLoader(corrupted_dataset,
+					batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers,
+					pin_memory=False, sampler=None, drop_last=False)
+				test_loss, top1, ece = test(corrupted_loader, model, device, args, laplace=laplace, verbose=False)
+				results[i, ii] = np.array([test_loss, top1, ece])
+	elif args.dataset == 'imagenet':
+		mean=torch.tensor([0.485, 0.456, 0.406])
+		std=torch.tensor([0.229, 0.224, 0.225])
+
+		distortions = [
+		    'gaussian_noise', 'shot_noise', 'impulse_noise',
+		    'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
+		    'snow', 'frost', 'fog', 'brightness',
+		    'contrast', 'elastic_transform', 'pixelate', 'jpeg_compression',
+		    'speckle_noise', 'gaussian_blur', 'spatter', 'saturate'
+		]
+
+		results = np.zeros((5, len(distortions), 3))
+		for i, distortion_name in enumerate(distortions):
+		    for ii, severity in enumerate(range(1, 6)):
+		        corrupted_dataset = dset.ImageFolder(
+		            root='../DistortedImageNet/JPEG/' + distortion_name + '/' + str(severity),
+		            transform=trn.Compose([trn.CenterCrop(224), trn.ToTensor(), trn.Normalize(mean, std)]))
+
+		        corrupted_loader = torch.utils.data.DataLoader(
+		            corrupted_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
+
+				test_loss, top1, ece = test(corrupted_loader, model, device, args, laplace=laplace, verbose=False)
+				results[i, ii] = np.array([test_loss, top1, ece])
+
+		    print('\n=Average', tuple(errs))
+
+	else:
+		raise NotImplementedError
 	print(results.mean(1)[:, 2])
 	np.save(args.save_dir + '/corrupted_results_{}.npy'.format(token), results)
+
 
 if __name__ == '__main__':
 	main()

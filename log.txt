@@ -6,23 +6,38 @@
             MAP: Average loss: 0.2815, Accuracy: 0.9260, ECE: 0.0390
             Our: Average loss: 0.2331, Accuracy: 0.9258, ECE: 0.0092
             python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights last_layer --hessian-structure full --job-id lastl-full
-                lastl-full: Average loss: 0.2372, Accuracy: 0.9256, ECE: 0.0209
+                lastl-full: Average loss: 0.2703, Accuracy: 0.9244, ECE: 0.0350
             python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights last_layer --hessian-structure kron --job-id lastl-kron
+                lastl-kron: Average loss: 0.2717, Accuracy: 0.9248, ECE: 0.0354
             python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights all --hessian-structure diag --job-id all-diag
+                all-diag: Average loss: 0.7697, Accuracy: 0.8648, ECE: 0.3406
             python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights all --hessian-structure kron --job-id all-kron
+                all-kron: Average loss: 0.8965, Accuracy: 0.8394, ECE: 0.3749
 
 
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet32  --track-test-results
             MAP: Average loss: 0.2921, Accuracy: 0.9353, ECE: 0.0408
             Our: Average loss: 0.2161, Accuracy: 0.9349, ECE: 0.0082
+            lastl-full: Average loss: 0.2634, Accuracy: 0.9340, ECE: 0.0337
+            lastl-kron: Average loss: 0.2634, Accuracy: 0.9337, ECE: 0.0346
+            all-diag: Average loss: 0.7988, Accuracy: 0.8603, ECE: 0.3546
+            all-kron: Average loss: 1.0873, Accuracy: 0.7926, ECE: 0.4033
 
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --I 4 --search-freq 1000 --arch cifar10_resnet44  --track-test-results
             MAP: Average loss: 0.2753, Accuracy: 0.9401, ECE: 0.0385
             Our: Average loss: 0.2022, Accuracy: 0.9399, ECE: 0.0073
+            lastl-full: Average loss: 0.2423, Accuracy: 0.9395, ECE: 0.0268
+            lastl-kron: Average loss: 0.2371, Accuracy: 0.9389, ECE: 0.0295
+            all-diag: Average loss: 0.8326, Accuracy: 0.8444, ECE: 0.3518
+            all-kron: Average loss: 1.1703, Accuracy: 0.7381, ECE: 0.3684
 
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --I 4 --search-freq 1000 --arch cifar10_resnet56 --track-test-results
             MAP: Average loss: 0.2523, Accuracy: 0.9437, ECE: 0.0374
             Our: Average loss: 0.1866, Accuracy: 0.9440, ECE: 0.0065
+            lastl-full: Average loss: 0.2189, Accuracy: 0.9440, ECE: 0.0218
+            lastl-kron: Average loss: 0.2074, Accuracy: 0.9437, ECE: 0.0242
+            all-diag: Average loss: 0.8981, Accuracy: 0.8240, ECE: 0.3606
+            all-kron: Average loss: 1.2622, Accuracy: 0.6762, ECE: 0.3278
 
 
 ---------------ImageNet------------------
@@ -30,10 +45,20 @@
             MAP: Average loss: 1.2469, Accuracy: 0.6976, ECE: 0.0263
             Our: Average loss: 1.2431, Accuracy: 0.6982, ECE: 0.0163
 
+            python laplace_baseline.py --batch-size 100 --test-batch-size 100 --dataset imagenet --arch resnet18 --subset-of-weights last_layer --hessian-structure kron --job-id lastl-kron
+                lastl-kron:
+
     python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --I 100 --search-freq 100 --dataset imagenet --arch resnet34
             MAP: Average loss: 1.0810, Accuracy: 0.7330, ECE: 0.0354
             Our: Average loss: 1.0709, Accuracy: 0.7336, ECE: 0.0141
+            lastl-kron:
 
     python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --I 100 --search-freq 100 --dataset imagenet --arch resnet50
             MAP: Average loss: 0.9616, Accuracy: 0.7615, ECE: 0.0369
             Our: Average loss: 0.9479, Accuracy: 0.7615, ECE: 0.0179
+            lastl-kron:
+
+
+    python main.py --balanced --batch-size 100 --test-batch-size 100 --sigma2 0.01 --K 20 --M 2000 --I 80 --search-freq 100 --dataset imagenet --arch vit_base_patch16_224
+            MAP: Average loss: 0.6999, Accuracy: 0.8151, ECE: 0.0387
+            Our:

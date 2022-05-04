@@ -16,6 +16,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import torchvision.models as models
+import torchvision.datasets as dset
+import torchvision.transforms as trn
 import pytorch_cifar_models
 import timm
 
@@ -148,9 +150,10 @@ def main():
 											 args.M, args.balanced,
 											 device, verbose=False)
 		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=args.I)
-		torch.save({
-			'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
-		}, os.path.join(args.save_dir, 'dual_params.tar.gz'))
+		if not 'vit' in args.arch:
+			torch.save({
+				'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
+			}, os.path.join(args.save_dir, 'dual_params.tar.gz'))
 
 	if args.measure_speed:
 		x, y = subsample(train_loader_noaug, args.num_classes, args.batch_size, False, device, verbose=False)
@@ -180,10 +183,9 @@ def main():
 					cov_clone = cov.data.clone()
 					cov_clone.diagonal().add_(1 / args.sigma2 * (i + 1) * args.batch_size / len(train_loader_noaug.dataset))
 					cov_inv = cov_clone.inverse()
-					print(cov_inv)
-					print(torch.dist(cov_inv, cov_inv.T))
-					cov_inv = cov_inv.tril() + cov_inv.tril(-1).T
-					print(torch.dist(cov_inv, cov_inv.T))
+					# if 'vit' in args.arch:
+					# 	# enforce symmetry
+					# 	cov_inv = cov_inv.tril() + cov_inv.tril(-1).T
 					val_loss, _, _ = ella_test(val_loader, model, device, args, Psi, cov_inv, verbose=True)
 					if args.track_test_results:
 						test_loss, test_acc, test_ece = ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=False)
@@ -208,7 +210,7 @@ def main():
 	print("--------- LLA ---------")
 	ella_test(test_loader, model, device, args, Psi, best_cov_inv)
 
-	if 'cifar' in args.dataset:
+	if args.dataset in ['cifar10', 'cifar100', 'imagenet']:
 		print("--------- MAP on corrupted_data ---------")
 		eval_corrupted_data(model_bk, device, args, token='map')
 
@@ -223,7 +225,11 @@ def ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=True):
 			x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
 			Psi_x, y_pred = Psi(x, return_output=True)
 			F_var = Psi_x @ cov_inv.unsqueeze(0) @ Psi_x.permute(0, 2, 1)
-			F_samples = (psd_safe_cholesky(F_var) @ torch.randn(F_var.shape[0], F_var.shape[1], args.num_samples_eval, device=F_var.device)).permute(2, 0, 1) * args.ntk_std_scale + y_pred
+			# if 'vit' in args.arch:
+			# 	F_var_L = torch.stack([psd_safe_cholesky(item) for item in F_var])
+			# else:
+			F_var_L = psd_safe_cholesky(F_var)
+			F_samples = (F_var_L @ torch.randn(F_var.shape[0], F_var.shape[1], args.num_samples_eval, device=F_var.device)).permute(2, 0, 1) * args.ntk_std_scale + y_pred
 			prob = F_samples.softmax(-1).mean(0)
 
 			loss += F.cross_entropy(prob.log(), y).item() * x.shape[0]
@@ -272,36 +278,69 @@ def test(test_loader, model, device, args, verbose=True):
 	return loss, acc, ece
 
 def eval_corrupted_data(model, device, args, Psi=None, cov_inv=None, token=''):
-	if args.dataset == 'cifar10':
-		corrupted_data_path = './CIFAR-10-C/CIFAR-10-C'
-		mean=torch.tensor([0.4914, 0.4822, 0.4465])
-		std=torch.tensor([0.2023, 0.1994, 0.201])
-	else:
-		corrupted_data_path = './CIFAR-100-C/CIFAR-100-C'
-		mean=torch.tensor([0.507, 0.4865, 0.4409])
-		std=torch.tensor([0.2673, 0.2564, 0.2761])
+	if 'cifar' in args.dataset:
+		if args.dataset == 'cifar10':
+			corrupted_data_path = './CIFAR-10-C/CIFAR-10-C'
+			mean=torch.tensor([0.4914, 0.4822, 0.4465])
+			std=torch.tensor([0.2023, 0.1994, 0.201])
+		else:
+			corrupted_data_path = './CIFAR-100-C/CIFAR-100-C'
+			mean=torch.tensor([0.507, 0.4865, 0.4409])
+			std=torch.tensor([0.2673, 0.2564, 0.2761])
 
-	corrupted_data_files = os.listdir(corrupted_data_path)
-	corrupted_data_files.remove('labels.npy')
-	if 'README.txt' in corrupted_data_files:
-		corrupted_data_files.remove('README.txt')
-	results = np.zeros((5, len(corrupted_data_files), 3))
-	labels = torch.from_numpy(np.load(os.path.join(corrupted_data_path, 'labels.npy'), allow_pickle=True)).long()
-	for ii, corrupted_data_file in enumerate(corrupted_data_files):
-		corrupted_data = np.load(os.path.join(corrupted_data_path, corrupted_data_file), allow_pickle=True)
-		for i in range(5):
-			print(corrupted_data_file, i)
-			images = torch.from_numpy(corrupted_data[i*10000:(i+1)*10000]).float().permute(0, 3, 1, 2)/255.
-			images = (images - mean.view(1, 3, 1, 1)) / std.view(1, 3, 1, 1)
-			corrupted_dataset = torch.utils.data.TensorDataset(images, labels[i*10000:(i+1)*10000])
-			corrupted_loader = torch.utils.data.DataLoader(corrupted_dataset,
-				batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers,
-				pin_memory=False, sampler=None, drop_last=False)
-			if Psi is None:
-				test_loss, top1, ece = test(corrupted_loader, model, device, args, verbose=False)
-			else:
-				test_loss, top1, ece = ella_test(corrupted_loader, model, device, args, Psi, cov_inv, verbose=False)
-			results[i, ii] = np.array([test_loss, top1, ece])
+		corrupted_data_files = os.listdir(corrupted_data_path)
+		corrupted_data_files.remove('labels.npy')
+		if 'README.txt' in corrupted_data_files:
+			corrupted_data_files.remove('README.txt')
+		results = np.zeros((5, len(corrupted_data_files), 3))
+		labels = torch.from_numpy(np.load(os.path.join(corrupted_data_path, 'labels.npy'), allow_pickle=True)).long()
+		for ii, corrupted_data_file in enumerate(corrupted_data_files):
+			corrupted_data = np.load(os.path.join(corrupted_data_path, corrupted_data_file), allow_pickle=True)
+			for i in range(5):
+				print(corrupted_data_file, i)
+				images = torch.from_numpy(corrupted_data[i*10000:(i+1)*10000]).float().permute(0, 3, 1, 2)/255.
+				images = (images - mean.view(1, 3, 1, 1)) / std.view(1, 3, 1, 1)
+				corrupted_dataset = torch.utils.data.TensorDataset(images, labels[i*10000:(i+1)*10000])
+				corrupted_loader = torch.utils.data.DataLoader(corrupted_dataset,
+					batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers,
+					pin_memory=False, sampler=None, drop_last=False)
+				if Psi is None:
+					test_loss, top1, ece = test(corrupted_loader, model, device, args, verbose=False)
+				else:
+					test_loss, top1, ece = ella_test(corrupted_loader, model, device, args, Psi, cov_inv, verbose=False)
+				results[i, ii] = np.array([test_loss, top1, ece])
+	elif args.dataset == 'imagenet':
+		mean=torch.tensor([0.485, 0.456, 0.406])
+		std=torch.tensor([0.229, 0.224, 0.225])
+
+		distortions = [
+		    'gaussian_noise', 'shot_noise', 'impulse_noise',
+		    'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
+		    'snow', 'frost', 'fog', 'brightness',
+		    'contrast', 'elastic_transform', 'pixelate', 'jpeg_compression',
+		    'speckle_noise', 'gaussian_blur', 'spatter', 'saturate'
+		]
+
+		results = np.zeros((5, len(distortions), 3))
+		for i, distortion_name in enumerate(distortions):
+		    for ii, severity in enumerate(range(1, 6)):
+		        corrupted_dataset = dset.ImageFolder(
+		            root='../DistortedImageNet/JPEG/' + distortion_name + '/' + str(severity),
+		            transform=trn.Compose([trn.CenterCrop(224), trn.ToTensor(), trn.Normalize(mean, std)]))
+
+		        corrupted_loader = torch.utils.data.DataLoader(
+		            corrupted_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
+
+		        if Psi is None:
+					test_loss, top1, ece = test(corrupted_loader, model, device, args, verbose=False)
+				else:
+					test_loss, top1, ece = ella_test(corrupted_loader, model, device, args, Psi, cov_inv, verbose=False)
+				results[i, ii] = np.array([test_loss, top1, ece])
+
+		    print('\n=Average', tuple(errs))
+
+	else:
+		raise NotImplementedError
 	print(results.mean(1)[:, 2])
 	np.save(args.save_dir + '/corrupted_results_{}.npy'.format(token), results)
 

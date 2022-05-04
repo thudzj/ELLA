@@ -16,10 +16,10 @@ import seaborn as sns
 for title in ['cifar10_resnet20', 'cifar10_resnet32', 'cifar10_resnet44', 'cifar10_resnet56']:
 
     files = [os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'corrupted_results_map.npy')]
-    for job_id in ['default', 'lastl-full']:
+    for job_id in ['default', 'lastl-full', 'lastl-kron', 'all-kron', 'all-kron']:
         dir = './logs/{}/{}/{}/'.format(title.split("_")[0], title, job_id)
         files.append(os.path.join(dir, 'corrupted_results_{}.npy'.format('ella' if job_id == 'default' else job_id)))
-    labels = ['MAP', 'ELLA', 'LastL-F']
+    labels = ['MAP', 'ELLA', 'LLA-LastL', 'LLA-LastL-KFAC', 'LLA', 'LLA-KFAC']
 
 
     for typ in ['Negative Log-likelihood', 'Accuracy', 'Expected Calibration Error']:
