@@ -180,6 +180,10 @@ def main():
 					cov_clone = cov.data.clone()
 					cov_clone.diagonal().add_(1 / args.sigma2 * (i + 1) * args.batch_size / len(train_loader_noaug.dataset))
 					cov_inv = cov_clone.inverse()
+					print(cov_inv)
+					print(torch.dist(cov_inv, cov_inv.T))
+					cov_inv = cov_inv.tril() + cov_inv.tril(-1).T
+					print(torch.dist(cov_inv, cov_inv.T))
 					val_loss, _, _ = ella_test(val_loader, model, device, args, Psi, cov_inv, verbose=True)
 					if args.track_test_results:
 						test_loss, test_acc, test_ece = ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=False)

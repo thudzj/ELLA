@@ -5,6 +5,12 @@
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet20 --track-test-results
             MAP: Average loss: 0.2815, Accuracy: 0.9260, ECE: 0.0390
             Our: Average loss: 0.2331, Accuracy: 0.9258, ECE: 0.0092
+            python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights last_layer --hessian-structure full --job-id lastl-full
+                lastl-full: Average loss: 0.2372, Accuracy: 0.9256, ECE: 0.0209
+            python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights last_layer --hessian-structure kron --job-id lastl-kron
+            python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights all --hessian-structure diag --job-id all-diag
+            python laplace_baseline.py --batch-size 500 --test-batch-size 500 --arch cifar10_resnet20 --subset-of-weights all --hessian-structure kron --job-id all-kron
+
 
     python main.py --balanced --batch-size 500 --test-batch-size 500 --sigma2 0.04 --K 20 --M 2000 --search-freq 1000 --arch cifar10_resnet32  --track-test-results
             MAP: Average loss: 0.2921, Accuracy: 0.9353, ECE: 0.0408
