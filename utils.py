@@ -167,40 +167,44 @@ def jac(model, xs, ys, num_classes, full=False, dtype=torch.float32):
 			Js.append(g)
 	return torch.stack(Js)
 
-def build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=1, verbose=True):
-	indices = torch.empty_like(y_subsample).random_(args.num_classes) if args.random else y_subsample
+def build_dual_params_list(model, params, x_subsample, y_subsample, num_classes=10, random=True, K=20, args=None, num_batches=1, verbose=True):
+	if args is not None:
+		random = args.random
+		num_classes = args.num_classes
+		K = args.K
+	indices = torch.empty_like(y_subsample).random_(num_classes).long() if random else y_subsample
 	if num_batches == 1:
-		Js = jac(model, x_subsample, indices, args.num_classes)
+		Js = jac(model, x_subsample, indices, num_classes)
 		mat = Js @ Js.T
 	else:
 		mat = torch.empty(x_subsample.shape[0], x_subsample.shape[0], device=x_subsample.device)
 		s = x_subsample.shape[0] // num_batches
 		for i in tqdm(range(0, x_subsample.shape[0], s), desc='Doing matmul', total=num_batches):
 			ii = min(i + s, x_subsample.shape[0])
-			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], args.num_classes)
+			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], num_classes)
 
 			for j in range(0, x_subsample.shape[0], s):
 				jj = min(j + s, x_subsample.shape[0])
-				Js_b2 = jac(model, x_subsample[j:jj], indices[j:jj], args.num_classes)
+				Js_b2 = jac(model, x_subsample[j:jj], indices[j:jj], num_classes)
 				mat[i:ii, j:jj] = Js_b @ Js_b2.T
 				# print(i, j, torch.dist(Js_b, Js1[i:ii]), torch.dist(Js_b2, Js1[j:jj]), torch.dist(mat[i:ii, j:jj], mat1[i:ii, j:jj]))
 				# print(mat[i:ii, j:jj], mat1[i:ii, j:jj])
 		del Js_b, Js_b2
 
 	p, q = psd_safe_eigen(mat)
-	p = p[range(-1, -(args.K+1), -1)]
-	q = q[:, range(-1, -(args.K+1), -1)]
+	p = p[range(-1, -(K+1), -1)]
+	q = q[:, range(-1, -(K+1), -1)]
 	tmp = q.div(p.sqrt())
 	p = (p / x_subsample.shape[0])
 
 	if num_batches == 1:
 		V = Js.T @ tmp
 	else:
-		V = torch.zeros(count_parameters(model), args.K, device=tmp.device)
+		V = torch.zeros(count_parameters(model), K, device=tmp.device)
 		s = x_subsample.shape[0] // num_batches
 		for i in tqdm(range(0, x_subsample.shape[0], s), desc='Doing matmul', total=num_batches):
 			ii = min(i + s, x_subsample.shape[0])
-			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], args.num_classes)
+			Js_b = jac(model, x_subsample[i:ii], indices[i:ii], num_classes)
 			V += Js_b.T @ tmp[i:ii]
 		del Js_b
 

@@ -22,11 +22,13 @@ import pytorch_cifar_models
 import timm
 
 from data import data_loaders
-from utils import count_parameters, _ECELoss, ConvNet, fuse_bn_recursively
+from utils import count_parameters, _ECELoss, ConvNet
 
-from laplace import Laplace
+from scalablebdl.mean_field import to_bayesian
+from scalablebdl.bnn_utils import use_flipout, use_single_eps
+from scalablebdl.prior_reg import PriorRegularizor
 
-parser = argparse.ArgumentParser(description='LA for DNNs')
+parser = argparse.ArgumentParser(description='MFVI for DNNs')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
 					help='number of data loading workers (default: 8)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -46,12 +48,14 @@ parser.add_argument('--pretrained', default=None, type=str, metavar='PATH',
 parser.add_argument('--save-dir', dest='save_dir',
 					help='The directory used to save the trained models',
 					default='./logs/', type=str)
-parser.add_argument('--job-id', default='laplace', type=str)
+parser.add_argument('--job-id', default='mfvi', type=str)
 
-parser.add_argument('--subset-of-weights', default='all', choices=['all', 'subnetwork', 'last_layer'], type=str)
-parser.add_argument('--hessian-structure', default='full', choices=['full', 'kron', 'lowrank', 'diag'], type=str)
-
-parser.add_argument('--K', type=int, default=20)
+parser.add_argument('--K', default=20, type=int)
+parser.add_argument('--epochs', metavar='N', type=int, default=40, help='Number of epochs to ft.')
+parser.add_argument('--lr', type=float, default=0.1)
+parser.add_argument('--ft_lr', type=float, default=8e-4, help='The Learning Rate.')
+parser.add_argument('--momentum', type=float, default=0.9, help='Momentum.')
+parser.add_argument('--decay', type=float, default=0.0005, help='Weight decay (L2 penalty).')
 
 def main():
 	args = parser.parse_args()
@@ -86,9 +90,8 @@ def main():
 	torch.manual_seed(args.seed)
 	torch.cuda.manual_seed_all(args.seed)
 
-	train_loader_noaug, val_loader, test_loader = data_loaders(args,
-		valid_size=0.01 if args.dataset == 'imagenet' else 0.2, noaug=True)
-	print("Number of training data", len(train_loader_noaug.dataset))
+	train_loader, test_loader = data_loaders(args)
+	print("Number of training data", len(train_loader.dataset))
 
 	if args.arch == 'mnist_model':
 		model = ConvNet(args.num_classes).to(device)
@@ -111,30 +114,33 @@ def main():
 		print("Load MAP model from", args.pretrained)
 		model.load_state_dict(torch.load(args.pretrained))
 
-	model.eval()
-	if args.hessian_structure == 'kron':
-		model = fuse_bn_recursively(model)
 	print("---------MAP model ---------")
 	test(test_loader, model, device, args)
 
-	###### LA ######
-	print("--------- LA ---------")
-	if args.subset_of_weights == 'last_layer':
-		la = Laplace(model, 'classification',
-					 subset_of_weights=args.subset_of_weights,
-					 hessian_structure=args.hessian_structure,
-					 last_layer_name='fc' if 'resnet' in args.arch else 'head')
-	else:
-		la = Laplace(model, 'classification',
-					 subset_of_weights=args.subset_of_weights,
-					 hessian_structure=args.hessian_structure)
-	la.fit(train_loader_noaug)
-	la.optimize_prior_precision(method='marglik', pred_type='glm', link_approx='mc', n_samples=args.K)
-	test(test_loader, la, device, args, laplace=True)
+	print("--------- MFVI ---------")
+	mfvi_model = to_bayesian(model.cpu(), num_mc_samples=args.K).to(device)
+	pre_trained, new_added = [], []
+	for name, param in mfvi_model.named_parameters():
+		if 'psi' in name:
+			new_added.append(param)
+		else:
+			pre_trained.append(param)
+	args.lr_min = args.ft_lr
+	optimizer = torch.optim.SGD([{'params': pre_trained, 'lr': args.ft_lr},
+								 {'params': new_added, 'lr': args.lr}],
+								 weight_decay=0, momentum=args.momentum)
+	prior_reg = PriorRegularizor(mfvi_model, args.decay, len(train_loader.dataset),
+										 args.K, 'mean_field', False)
+
+	for epoch in range(args.epochs):
+		use_flipout(mfvi_model)
+		mfvi_finetune(epoch, train_loader, mfvi_model, optimizer, prior_reg, device, args)
+		use_single_eps(mfvi_model)
+		test(test_loader, mfvi_model, device, args, is_mfvi=True)
 
 	if args.dataset in ['cifar10', 'cifar100', 'imagenet']:
-		print("--------- LA on corrupted_data ---------")
-		eval_corrupted_data(la, device, args, laplace=True, token=args.job_id)
+		print("--------- MFVI on corrupted_data ---------")
+		eval_corrupted_data(mfvi_model, device, args, is_mfvi=True, token='mfvi')
 
 	if args.dataset in ['cifar10', 'cifar100']:
 		if args.dataset == 'cifar10':
@@ -152,8 +158,8 @@ def main():
 		ood_loader = torch.utils.data.DataLoader(ood_dataset,
 			batch_size=args.test_batch_size, num_workers=args.workers,
 			pin_memory=True, shuffle=False)
-		is_correct, confidences = test(test_loader, la, device, args, laplace=True, return_more=True)
-		is_correct_ood, confidences_ood = test(ood_loader, la, device, args, laplace=True, return_more=True)
+		is_correct, confidences = test(test_loader, mfvi_model, device, args, is_mfvi=True, return_more=True)
+		is_correct_ood, confidences_ood = test(ood_loader, mfvi_model, device, args, is_mfvi=True, return_more=True)
 
 		is_correct = torch.cat([is_correct, torch.zeros_like(is_correct_ood)]).data.cpu().numpy()
 		confidences = torch.cat([confidences, confidences_ood]).data.cpu().numpy()
@@ -161,25 +167,54 @@ def main():
 		ths = np.linspace(0, 1, 300)[:299]
 		accs = []
 		for th in ths:
-			if th >= confidences.max():
-				accs.append(accs[-1])
-			else:
-				accs.append(is_correct[confidences > th].mean())
+			# if th >= confidences.max():
+			# 	accs.append(accs[-1])
+			# else:
+			accs.append(is_correct[confidences > th].mean())
 		np.save(args.save_dir + '/acc_vs_conf_{}.npy'.format(args.job_id), np.array(accs))
 
-def test(test_loader, model, device, args, laplace=False, verbose=True, return_more=False):
+def mfvi_finetune(epoch, train_loader, model, optimizer, prior_reg, device, args, verbose=True):
+	model.train()
+	losses, acc, num_data = 0, 0, 0
+	for i, (x_batch, y_batch) in enumerate(train_loader):
+		cur_lr, cur_slr = adjust_learning_rate_per_step(
+					optimizer, epoch, i, len(train_loader), args)
+		x_batch, y_batch = x_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
+
+		y_pred = model(x_batch)
+		loss = F.cross_entropy(y_pred, y_batch)
+
+		with torch.no_grad():
+			losses += loss.item() * x_batch.shape[0]
+			acc += (torch.max(y_pred, 1)[1] == y_batch).float().sum().item()
+			num_data += x_batch.shape[0]
+
+		optimizer.zero_grad()
+		loss.backward()
+		prior_reg.step()
+		optimizer.step()
+
+	losses /= num_data
+	acc /= num_data
+	if verbose:
+		print("Epoch {} of MFVI finetuning: loss: {:.4f}, Accuracy: {:.4f}, lr: {:.4f} {:.4f}".format(epoch, losses, acc, cur_lr, cur_slr))
+
+def test(test_loader, model, device, args, is_mfvi=False, verbose=True, return_more=False):
 	t0 = time.time()
 
-	if not laplace:
-		model.eval()
+	model.eval()
 
 	targets, confidences, predictions = [], [], []
 	loss, acc, num_data = 0, 0, 0
 	with torch.no_grad():
 		for x_batch, y_batch in test_loader:
 			x_batch, y_batch = x_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
-			if laplace:
-				y_pred = model(x_batch, pred_type='glm', link_approx='mc', n_samples=args.K).log()
+
+			if is_mfvi:
+				y_pred = 0
+				for _ in range(args.K):
+					y_pred += model(x_batch).softmax(-1)
+				y_pred = y_pred.div(args.K).log()
 			else:
 				y_pred = model(x_batch)
 
@@ -203,7 +238,7 @@ def test(test_loader, model, device, args, laplace=False, verbose=True, return_m
 		return (targets == predictions).float(), confidences
 	return loss, acc, ece
 
-def eval_corrupted_data(model, device, args, laplace=False, token=''):
+def eval_corrupted_data(model, device, args, is_mfvi=False, token=''):
 	if 'cifar' in args.dataset:
 		if args.dataset == 'cifar10':
 			corrupted_data_path = './CIFAR-10-C/CIFAR-10-C'
@@ -230,7 +265,7 @@ def eval_corrupted_data(model, device, args, laplace=False, token=''):
 				corrupted_loader = torch.utils.data.DataLoader(corrupted_dataset,
 					batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers,
 					pin_memory=False, sampler=None, drop_last=False)
-				test_loss, top1, ece = test(corrupted_loader, model, device, args, laplace=laplace, verbose=False)
+				test_loss, top1, ece = test(corrupted_loader, model, device, args, is_mfvi=is_mfvi, verbose=False)
 				results[i, ii] = np.array([test_loss, top1, ece])
 	elif args.dataset == 'imagenet':
 		mean=torch.tensor([0.485, 0.456, 0.406])
@@ -255,12 +290,17 @@ def eval_corrupted_data(model, device, args, laplace=False, token=''):
 				corrupted_loader = torch.utils.data.DataLoader(
 					corrupted_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
 
-				test_loss, top1, ece = test(corrupted_loader, model, device, args, laplace=laplace, verbose=False)
+				test_loss, top1, ece = test(corrupted_loader, model, device, args, is_mfvi=is_mfvi, verbose=False)
 				results[i, ii] = np.array([test_loss, top1, ece])
 	else:
 		raise NotImplementedError
 	print(results.mean(1)[:, 2])
 	np.save(args.save_dir + '/corrupted_results_{}.npy'.format(token), results)
+
+def adjust_learning_rate_per_step(optimizer, epoch, i, num_ites_per_epoch, args):
+	optimizer.param_groups[0]['lr'] = args.ft_lr# * (1 + math.cos(math.pi * (epoch + float(i)/num_ites_per_epoch) / args.epochs)) / 2.
+	optimizer.param_groups[1]['lr'] = args.lr_min + (args.lr-args.lr_min) * (1 + math.cos(math.pi * (epoch + float(i)/num_ites_per_epoch) / args.epochs)) / 2.
+	return optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']
 
 if __name__ == '__main__':
 	main()

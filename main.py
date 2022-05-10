@@ -49,7 +49,7 @@ parser.add_argument('--job-id', default='default', type=str)
 parser.add_argument('--resume-dual-params', default=None, type=str)
 parser.add_argument('--resume-cov-inv', default=None, type=str)
 
-parser.add_argument('--K', default=10, type=int)
+parser.add_argument('--K', default=20, type=int)
 parser.add_argument('--M', default=100, type=int, help='the number of samples')
 parser.add_argument('--I', default=1, type=int, help='the number of samples')
 parser.add_argument('--balanced', action='store_true', default=False)
@@ -149,11 +149,11 @@ def main():
 		x_subsample, y_subsample = subsample(train_loader_noaug, args.num_classes,
 											 args.M, args.balanced,
 											 device, verbose=False)
-		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args, num_batches=args.I)
-		if not 'vit' in args.arch:
-			torch.save({
-				'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
-			}, os.path.join(args.save_dir, 'dual_params.tar.gz'))
+		dual_params_list = build_dual_params_list(model, params, x_subsample, y_subsample, args=args, num_batches=args.I)
+
+		torch.save({
+			'0': [{k:v.data.cpu() for k,v in dual_params.items()} for dual_params in dual_params_list],
+		}, os.path.join(args.save_dir if not 'vit' in args.arch else '../ella_logs', 'dual_params.tar.gz'))
 
 	if args.measure_speed:
 		x, y = subsample(train_loader_noaug, args.num_classes, args.batch_size, False, device, verbose=False)
@@ -183,9 +183,6 @@ def main():
 					cov_clone = cov.data.clone()
 					cov_clone.diagonal().add_(1 / args.sigma2 * (i + 1) * args.batch_size / len(train_loader_noaug.dataset))
 					cov_inv = cov_clone.inverse()
-					# if 'vit' in args.arch:
-					# 	# enforce symmetry
-					# 	cov_inv = cov_inv.tril() + cov_inv.tril(-1).T
 					val_loss, _, _ = ella_test(val_loader, model, device, args, Psi, cov_inv, verbose=True)
 					if args.track_test_results:
 						test_loss, test_acc, test_ece = ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=False)
@@ -217,7 +214,55 @@ def main():
 		print("--------- LLA on corrupted_data ---------")
 		eval_corrupted_data(model, device, args, Psi, best_cov_inv, token='ella')
 
-def ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=True):
+	if args.dataset in ['cifar10', 'cifar100']:
+		if args.dataset == 'cifar10':
+			normalize = trn.Normalize(mean=[0.4914, 0.4822, 0.4465],
+										 	 std=[0.2023, 0.1994, 0.201])
+		else:
+			normalize = trn.Normalize(mean=[0.507, 0.4865, 0.4409],
+										 	 std=[0.2673, 0.2564, 0.2761])
+		ood_dataset = dset.SVHN(args.data_root.replace('cifar', 'svhn'),
+			split='test', download=True,
+			transform=trn.Compose([
+				trn.ToTensor(),
+				normalize,
+			]))
+		ood_loader = torch.utils.data.DataLoader(ood_dataset,
+			batch_size=args.test_batch_size, num_workers=args.workers,
+			pin_memory=True, shuffle=False)
+
+		is_correct, confidences = ella_test(test_loader, model, device, args, Psi, best_cov_inv, return_more=True)
+		is_correct_ood, confidences_ood = ella_test(ood_loader, model, device, args, Psi, best_cov_inv, return_more=True)
+
+		is_correct = torch.cat([is_correct, torch.zeros_like(is_correct_ood)]).data.cpu().numpy()
+		confidences = torch.cat([confidences, confidences_ood]).data.cpu().numpy()
+
+		ths = np.linspace(0, 1, 300)[:299]
+		accs = []
+		for th in ths:
+			# if th >= confidences.max():
+			# 	accs.append(accs[-1])
+			# else:
+				accs.append(is_correct[confidences > th].mean())
+		np.save(args.save_dir + '/acc_vs_conf_ella.npy', np.array(accs))
+
+		is_correct, confidences = test(test_loader, model_bk, device, args, return_more=True)
+		is_correct_ood, confidences_ood = test(ood_loader, model_bk, device, args, return_more=True)
+
+		is_correct = torch.cat([is_correct, torch.zeros_like(is_correct_ood)]).data.cpu().numpy()
+		confidences = torch.cat([confidences, confidences_ood]).data.cpu().numpy()
+
+		ths = np.linspace(0, 1, 300)[:299]
+		accs = []
+		for th in ths:
+			# if th >= confidences.max():
+			# 	accs.append(accs[-1])
+			# else:
+				accs.append(is_correct[confidences > th].mean())
+		np.save(args.save_dir + '/acc_vs_conf_map.npy', np.array(accs))
+
+def ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=True, return_more=False):
+	t0 = time.time()
 	targets, confidences, predictions = [], [], []
 	loss, acc, num_data = 0, 0, 0
 	with torch.no_grad():
@@ -246,10 +291,14 @@ def ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=True):
 		acc /= num_data
 		ece = _ECELoss()(confidences, predictions, targets).item()
 	if verbose:
-		print("Test results of ELLA: Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}".format(loss, acc, ece))
+		print("Test results of ELLA: Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}, time: {:.2f}s".format(loss, acc, ece, time.time() - t0))
+	if return_more:
+		return (targets == predictions).float(), confidences
 	return loss, acc, ece
 
-def test(test_loader, model, device, args, verbose=True):
+def test(test_loader, model, device, args, verbose=True, return_more=False):
+	t0 = time.time()
+
 	model.eval()
 
 	targets, confidences, predictions = [], [], []
@@ -274,7 +323,9 @@ def test(test_loader, model, device, args, verbose=True):
 		ece = _ECELoss()(confidences, predictions, targets).item()
 
 	if verbose:
-		print("Test results: Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}".format(loss, acc, ece))
+		print("Test results: Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}, time: {:.2f}s".format(loss, acc, ece, time.time() - t0))
+	if return_more:
+		return (targets == predictions).float(), confidences
 	return loss, acc, ece
 
 def eval_corrupted_data(model, device, args, Psi=None, cov_inv=None, token=''):
@@ -314,31 +365,29 @@ def eval_corrupted_data(model, device, args, Psi=None, cov_inv=None, token=''):
 		std=torch.tensor([0.229, 0.224, 0.225])
 
 		distortions = [
-		    'gaussian_noise', 'shot_noise', 'impulse_noise',
-		    'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
-		    'snow', 'frost', 'fog', 'brightness',
-		    'contrast', 'elastic_transform', 'pixelate', 'jpeg_compression',
-		    'speckle_noise', 'gaussian_blur', 'spatter', 'saturate'
+			'gaussian_noise', 'shot_noise', 'impulse_noise',
+			'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
+			'snow', 'frost', 'fog', 'brightness',
+			'contrast', 'elastic_transform', 'pixelate', 'jpeg_compression',
+			'speckle_noise', 'gaussian_blur', 'spatter', 'saturate'
 		]
 
 		results = np.zeros((5, len(distortions), 3))
-		for i, distortion_name in enumerate(distortions):
-		    for ii, severity in enumerate(range(1, 6)):
-		        corrupted_dataset = dset.ImageFolder(
-		            root='../DistortedImageNet/JPEG/' + distortion_name + '/' + str(severity),
-		            transform=trn.Compose([trn.CenterCrop(224), trn.ToTensor(), trn.Normalize(mean, std)]))
+		for ii, distortion_name in enumerate(distortions):
+			print(distortion_name)
+			for i, severity in enumerate(range(1, 6)):
+				corrupted_dataset = dset.ImageFolder(
+					root='../imagenet-c/' + distortion_name + '/' + str(severity),
+					transform=trn.Compose([trn.CenterCrop(224), trn.ToTensor(), trn.Normalize(mean, std)]))
 
-		        corrupted_loader = torch.utils.data.DataLoader(
-		            corrupted_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
+				corrupted_loader = torch.utils.data.DataLoader(
+					corrupted_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
 
-		        if Psi is None:
+				if Psi is None:
 					test_loss, top1, ece = test(corrupted_loader, model, device, args, verbose=False)
 				else:
 					test_loss, top1, ece = ella_test(corrupted_loader, model, device, args, Psi, cov_inv, verbose=False)
 				results[i, ii] = np.array([test_loss, top1, ece])
-
-		    print('\n=Average', tuple(errs))
-
 	else:
 		raise NotImplementedError
 	print(results.mean(1)[:, 2])

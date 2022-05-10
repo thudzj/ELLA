@@ -1,6 +1,7 @@
 __pycache__
+data
+unused
 *.pyc
 CIFAR-10-C
 CIFAR-100-C
 logs
-laplace
