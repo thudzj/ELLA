@@ -12,6 +12,16 @@ import pandas as pd
 import numpy.random as rnd
 import seaborn as sns
 
+def rename(arch):
+    if arch == 'resnet20':
+        return 'ResNet20'
+    if arch == 'resnet32':
+        return 'ResNet32'
+    if arch == 'resnet44':
+        return 'ResNet44'
+    if arch == 'resnet56':
+        return 'ResNet56'
+
 data = []
 archs = ['resnet20', 'resnet32', 'resnet44', 'resnet56']
 for arch in archs:
@@ -21,7 +31,7 @@ for arch in archs:
 fig = plt.figure(figsize=(6, 4))
 ax = fig.add_subplot(111)
 for item, arch in zip(data, archs):
-    ax.plot(item[:, 0], item[:, 1], label=arch)
+    ax.plot(item[:, 0], item[:, 1], label=rename(arch))
 # ax.set_xticklabels([int(float(t.get_text()))  for t in ax.get_xticklabels()])
 ax.spines['bottom'].set_color('gray')
 ax.spines['top'].set_color('gray')
@@ -40,7 +50,7 @@ plt.savefig('test_curve2.pdf', format='pdf', dpi=1000, bbox_inches='tight')
 fig = plt.figure(figsize=(12, 4))
 ax = fig.add_subplot(121)
 for item, arch in zip(data, archs):
-    ax.plot(item[:, 0], item[:, 2], label=arch)
+    ax.plot(item[:, 0], item[:, 2], label=rename(arch))
 # ax.set_xticklabels([int(float(t.get_text()))  for t in ax.get_xticklabels()])
 ax.spines['bottom'].set_color('gray')
 ax.spines['top'].set_color('gray')
@@ -57,7 +67,7 @@ ax.legend(handles=handles, labels=labels)
 
 ax = fig.add_subplot(122)
 for item, arch in zip(data, archs):
-    ax.plot(item[:, 0], item[:, 3], label=arch)
+    ax.plot(item[:, 0], item[:, 3], label=rename(arch))
 # ax.set_xticklabels([int(float(t.get_text()))  for t in ax.get_xticklabels()])
 ax.spines['bottom'].set_color('gray')
 ax.spines['top'].set_color('gray')

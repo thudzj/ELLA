@@ -5,3 +5,5 @@ unused
 CIFAR-10-C
 CIFAR-100-C
 logs
+log.txt
+pdfs

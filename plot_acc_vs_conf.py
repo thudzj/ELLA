@@ -23,11 +23,12 @@ import seaborn as sns
 
 for title in ['cifar10_resnet20']: #, 'cifar10_resnet32', 'cifar10_resnet44', 'cifar10_resnet56']:
 
-    files = [os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'acc_vs_conf_map.npy')]
-    for job_id in ['default', 'lastl-full', 'lastl-kron', 'mfvi']: #, 'all-kron', 'all-kron'
+    files = [os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'acc_vs_conf_ella.npy'),
+             os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'acc_vs_conf_map.npy')]
+    for job_id in ['lastl-full', 'lastl-kron', 'mfvi']: #, 'all-diag', 'all-kron'
         dir = './logs/{}/{}/{}/'.format(title.split("_")[0], title, job_id)
-        files.append(os.path.join(dir, 'acc_vs_conf_{}.npy'.format('ella' if job_id == 'default' else job_id)))
-    labels = ['MAP', 'ELLA', 'LLA-LastL', 'LLA-LastL-KFAC', 'MFVI'] #, 'LLA', 'LLA-KFAC'
+        files.append(os.path.join(dir, 'acc_vs_conf_{}.npy'.format(job_id)))
+    labels = ['ELLA', 'MAP', 'MFVI-BF', 'LLA$^*$', 'LLA$^*$-KFAC'] #, 'LLA-Diag', 'LLA-KFAC'
 
     x_test = np.linspace(0, 1, 300)[:-1]
     ys = []

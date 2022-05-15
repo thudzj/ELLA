@@ -51,7 +51,7 @@ parser.add_argument('--job-id', default='laplace', type=str)
 parser.add_argument('--subset-of-weights', default='all', choices=['all', 'subnetwork', 'last_layer'], type=str)
 parser.add_argument('--hessian-structure', default='full', choices=['full', 'kron', 'lowrank', 'diag'], type=str)
 
-parser.add_argument('--K', type=int, default=20)
+parser.add_argument('--S', type=int, default=512)
 
 def main():
 	args = parser.parse_args()
@@ -129,7 +129,7 @@ def main():
 					 subset_of_weights=args.subset_of_weights,
 					 hessian_structure=args.hessian_structure)
 	la.fit(train_loader_noaug)
-	la.optimize_prior_precision(method='marglik', pred_type='glm', link_approx='mc', n_samples=args.K)
+	la.optimize_prior_precision(method='marglik', pred_type='glm', link_approx='mc', n_samples=args.S)
 	test(test_loader, la, device, args, laplace=True)
 
 	if args.dataset in ['cifar10', 'cifar100', 'imagenet']:
@@ -179,7 +179,7 @@ def test(test_loader, model, device, args, laplace=False, verbose=True, return_m
 		for x_batch, y_batch in test_loader:
 			x_batch, y_batch = x_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
 			if laplace:
-				y_pred = model(x_batch, pred_type='glm', link_approx='mc', n_samples=args.K).log()
+				y_pred = model(x_batch, pred_type='glm', link_approx='mc', n_samples=args.S).log()
 			else:
 				y_pred = model(x_batch)
 

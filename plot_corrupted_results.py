@@ -15,20 +15,25 @@ import seaborn as sns
 
 # for title in ['cifar10_resnet20', 'cifar10_resnet32', 'cifar10_resnet44', 'cifar10_resnet56']:
 #
-#     files = [os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'corrupted_results_map.npy')]
-#     for job_id in ['default', 'lastl-full', 'lastl-kron', 'all-kron', 'all-kron', 'mfvi']:
+#     files = [os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'corrupted_results_ella.npy'),
+#              os.path.join('./logs/{}/{}/default/'.format(title.split("_")[0], title), 'corrupted_results_map.npy')]
+#     for job_id in ['mfvi', 'lastl-full', 'lastl-kron']: #, 'all-diag', 'all-kron'
 #         dir = './logs/{}/{}/{}/'.format(title.split("_")[0], title, job_id)
-#         files.append(os.path.join(dir, 'corrupted_results_{}.npy'.format('ella' if job_id == 'default' else job_id)))
-#     labels = ['MAP', 'ELLA', 'LLA-LastL', 'LLA-LastL-KFAC', 'LLA', 'LLA-KFAC', 'MFVI']
+#         files.append(os.path.join(dir, 'corrupted_results_{}.npy'.format(job_id)))
+#     labels = ['ELLA', 'MAP', 'MFVI-BF', 'LLA$^*$', 'LLA$^*$-KFAC'] #, 'LLA-Diag', 'LLA-KFAC'
 
 for title in ['resnet18', 'resnet34', 'resnet50', 'vit_base_patch16_224']:
 
-    files = [os.path.join('./logs/imagenet/{}/default/'.format(title), 'corrupted_results_map.npy')]
-    for job_id in ['default', 'mfvi']: #, 'lastl-full', 'lastl-kron', 'all-kron', 'all-kron'
+    files = [os.path.join('./logs/imagenet/{}/default/'.format(title), 'corrupted_results_ella.npy'),
+             os.path.join('./logs/imagenet/{}/default/'.format(title), 'corrupted_results_map.npy')]
+    for job_id in ['mfvi']: #, 'lastl-full', 'lastl-kron', 'all-kron', 'all-kron'
         dir = './logs/imagenet/{}/{}/'.format(title, job_id)
-        files.append(os.path.join(dir, 'corrupted_results_{}.npy'.format('ella' if job_id == 'default' else job_id)))
-    labels = ['MAP', 'ELLA', 'MFVI'] #, 'LLA-LastL', 'LLA-LastL-KFAC', 'LLA', 'LLA-KFAC'
-
+        files.append(os.path.join(dir, 'corrupted_results_{}.npy'.format(job_id)))
+    if title == 'vit_base_patch16_224':
+        files = files[:2]
+        labels = ['ELLA', 'MAP'] #, 'MFVI-BF', 'LLA$^*$', 'LLA$^*$-KFAC', 'LLA-Diag', 'LLA-KFAC'
+    else:
+        labels = ['ELLA', 'MAP', 'MFVI-BF'] #
 
     for typ in ['Negative Log-likelihood', 'Accuracy', 'Expected Calibration Error']:
         if typ == 'Negative Log-likelihood':

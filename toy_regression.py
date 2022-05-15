@@ -265,6 +265,6 @@ ax.spines['right'].set_color('gray')
 ax.spines['left'].set_color('gray')
 plt.xticks([])
 plt.yticks([])
-ax.set_title('LLA-LastL',y=-0.02,pad=-14)
+ax.set_title('LLA$^*$',y=-0.02,pad=-14)
 
 fig.savefig('toy_regression.pdf', format='pdf', dpi=1000, bbox_inches='tight')
