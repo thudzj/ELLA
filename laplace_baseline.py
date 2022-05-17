@@ -59,19 +59,7 @@ def main():
 	args.num_classes = 10 if args.dataset in ['mnist', 'cifar10'] else (100 if args.dataset == 'cifar100' else 1000)
 
 	if args.data_root is None:
-		if 'cifar' in args.dataset:
-			if os.path.isdir('/data/LargeData/Regular/cifar/'):
-				args.data_root = '/data/LargeData/Regular/cifar/'
-		elif args.dataset == 'imagenet':
-			if os.path.isdir('/data/LargeData/Large/ImageNet/'):
-				args.data_root = '/data/LargeData/Large/ImageNet/'
-			elif os.path.isdir('/workspace/home/zhijie/ImageNet/'):
-				args.data_root = '/workspace/home/zhijie/ImageNet/'
-		elif args.dataset == 'mnist':
-			if os.path.isdir('/data/LargeData/Regular/'):
-				args.data_root = '/data/LargeData/Regular/'
-		else:
-			assert False
+		assert False
 
 	if not os.path.exists(args.save_dir):
 		os.makedirs(args.save_dir)

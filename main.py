@@ -77,19 +77,7 @@ def main():
 		args.balanced = False
 
 	if args.data_root is None:
-		if 'cifar' in args.dataset:
-			if os.path.isdir('/data/LargeData/Regular/cifar/'):
-				args.data_root = '/data/LargeData/Regular/cifar/'
-		elif args.dataset == 'imagenet':
-			if os.path.isdir('/data/LargeData/Large/ImageNet/'):
-				args.data_root = '/data/LargeData/Large/ImageNet/'
-			elif os.path.isdir('/workspace/home/zhijie/ImageNet/'):
-				args.data_root = '/workspace/home/zhijie/ImageNet/'
-		elif args.dataset == 'mnist':
-			if os.path.isdir('/data/LargeData/Regular/'):
-				args.data_root = '/data/LargeData/Regular/'
-		else:
-			assert False
+		assert False
 
 	if not os.path.exists(args.save_dir):
 		os.makedirs(args.save_dir)
@@ -274,7 +262,8 @@ def ella_test(test_loader, model, device, args, Psi, cov_inv, verbose=True, retu
 			# 	F_var_L = torch.stack([psd_safe_cholesky(item) for item in F_var])
 			# else:
 			F_var_L = psd_safe_cholesky(F_var)
-			F_samples = (F_var_L @ torch.randn(F_var.shape[0], F_var.shape[1], args.num_samples_eval, device=F_var.device)).permute(2, 0, 1) * args.ntk_std_scale + y_pred
+			F_samples = (F_var_L @ torch.randn(F_var.shape[0], F_var.shape[1], args.num_samples_eval,
+				device=F_var.device)).permute(2, 0, 1) * args.ntk_std_scale + y_pred
 			prob = F_samples.softmax(-1).mean(0)
 
 			loss += F.cross_entropy(prob.log(), y).item() * x.shape[0]
