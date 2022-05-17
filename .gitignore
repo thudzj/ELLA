@@ -7,3 +7,5 @@ CIFAR-100-C
 logs
 log.txt
 pdfs
+plot*
+main_bk.py
