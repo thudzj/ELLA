@@ -157,6 +157,8 @@ plt.xticks([])
 plt.yticks([])
 ax.set_title('ELLA',y=-0.02,pad=-14)
 
+ella_pred_cov = y_pred_std ** 2
+
 model = model_bk
 
 la = Laplace(copy.deepcopy(model), 'regression', sigma_noise=data_noise,
@@ -186,6 +188,8 @@ plt.xticks([])
 plt.yticks([])
 ax.set_title('LLA',y=-0.02,pad=-14)
 
+lla_pred_cov = y_pred_std ** 2
+
 la = Laplace(copy.deepcopy(model), 'regression', sigma_noise=data_noise,
              prior_precision=1/sigma2,
              subset_of_weights='all',
@@ -212,6 +216,8 @@ ax.spines['left'].set_color('gray')
 plt.xticks([])
 plt.yticks([])
 ax.set_title('LLA-KFAC',y=-0.02,pad=-14)
+
+lla_kfac_pred_cov = y_pred_std ** 2
 
 la = Laplace(copy.deepcopy(model), 'regression', sigma_noise=data_noise,
              prior_precision=1/sigma2,
@@ -240,6 +246,8 @@ plt.xticks([])
 plt.yticks([])
 ax.set_title('LLA-Diag',y=-0.02,pad=-14)
 
+lla_diag_pred_cov = y_pred_std ** 2
+
 la = Laplace(copy.deepcopy(model), 'regression', sigma_noise=data_noise,
              prior_precision=1/sigma2,
              subset_of_weights='last_layer',
@@ -267,4 +275,13 @@ plt.xticks([])
 plt.yticks([])
 ax.set_title('LLA$^*$',y=-0.02,pad=-14)
 
+lla_star_pred_cov = y_pred_std ** 2
+
 fig.savefig('toy_regression.pdf', format='pdf', dpi=1000, bbox_inches='tight')
+
+
+
+print('ella_error', (np.log(ella_pred_cov/lla_pred_cov) / 2. + lla_pred_cov / ella_pred_cov / 2. - 0.5).mean())
+print('lla_kfac_error', (np.log(lla_kfac_pred_cov/lla_pred_cov) / 2. + lla_pred_cov / lla_kfac_pred_cov / 2. - 0.5).mean())
+print('lla_diag_error', (np.log(lla_diag_pred_cov/lla_pred_cov) / 2. + lla_pred_cov / lla_diag_pred_cov / 2. - 0.5).mean())
+print('lla_star_error', (np.log(lla_star_pred_cov/lla_pred_cov) / 2. + lla_pred_cov / lla_star_pred_cov / 2. - 0.5).mean())

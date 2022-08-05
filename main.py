@@ -77,7 +77,8 @@ def main():
 		args.balanced = False
 
 	if args.data_root is None:
-		assert False
+		args.data_root = '/data/LargeData/Regular/cifar' if args.dataset == 'cifar10' else '/data/LargeData/Large/ImageNet'
+		# assert False
 
 	if not os.path.exists(args.save_dir):
 		os.makedirs(args.save_dir)

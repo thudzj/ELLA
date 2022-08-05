@@ -59,7 +59,8 @@ def main():
 	args.num_classes = 10 if args.dataset in ['mnist', 'cifar10'] else (100 if args.dataset == 'cifar100' else 1000)
 
 	if args.data_root is None:
-		assert False
+		args.data_root = '/data/LargeData/Regular/cifar' if args.dataset == 'cifar10' else '/data/LargeData/Large/ImageNet'
+		# assert False
 
 	if not os.path.exists(args.save_dir):
 		os.makedirs(args.save_dir)
@@ -104,6 +105,65 @@ def main():
 		model = fuse_bn_recursively(model)
 	print("---------MAP model ---------")
 	test(test_loader, model, device, args)
+
+	if 1:
+		indices = list(range(len(train_loader_noaug.dataset)))
+		np.random.shuffle(indices)
+		test_results_list = []
+		for num_data in range(200, 41000, 200):
+			# num_data *= 1000
+			train_loader_noaug1 = torch.utils.data.DataLoader(
+				train_loader_noaug.dataset, batch_size=args.batch_size,
+				sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:num_data]),
+				num_workers=args.workers, pin_memory=True)
+
+			if args.subset_of_weights == 'last_layer':
+				la = Laplace(model, 'classification',
+							 subset_of_weights=args.subset_of_weights,
+							 hessian_structure=args.hessian_structure,
+							 prior_precision=1/0.04 * num_data / len(train_loader_noaug.dataset),
+							 last_layer_name='fc' if 'resnet' in args.arch else 'head')
+			else:
+				la = Laplace(model, 'classification',
+							 prior_precision=1/0.04 * num_data / len(train_loader_noaug.dataset),
+							 subset_of_weights=args.subset_of_weights,
+							 hessian_structure=args.hessian_structure)
+			la.fit(train_loader_noaug1)
+			# la.optimize_prior_precision(method='marglik', pred_type='glm', link_approx='mc', n_samples=args.S)
+			loss, acc, ece = test(test_loader, la, device, args, laplace=True, verbose=False)
+			print("Num data: {} Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}".format(num_data, loss, acc, ece))
+			test_results_list.append(np.array([num_data, loss, acc, ece]))
+		test_results_list = np.stack(test_results_list)
+		np.save(args.save_dir + '/test_results_nottune_prior.npy', test_results_list)
+
+		test_results_list = []
+		for num_data in range(200, 41000, 200):
+			# num_data *= 1000
+			train_loader_noaug1 = torch.utils.data.DataLoader(
+				train_loader_noaug.dataset, batch_size=args.batch_size,
+				sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:num_data]),
+				num_workers=args.workers, pin_memory=True)
+
+			if args.subset_of_weights == 'last_layer':
+				la = Laplace(model, 'classification',
+							 subset_of_weights=args.subset_of_weights,
+							 hessian_structure=args.hessian_structure,
+							 # prior_precision=1/0.04 * num_data / len(train_loader_noaug.dataset),
+							 last_layer_name='fc' if 'resnet' in args.arch else 'head')
+			else:
+				la = Laplace(model, 'classification',
+							 # prior_precision=1/0.04 * num_data / len(train_loader_noaug.dataset),
+							 subset_of_weights=args.subset_of_weights,
+							 hessian_structure=args.hessian_structure)
+			la.fit(train_loader_noaug1)
+			la.optimize_prior_precision(method='marglik', pred_type='glm', link_approx='mc', n_samples=args.S)
+			loss, acc, ece = test(test_loader, la, device, args, laplace=True, verbose=False)
+			print("Num data: {} Average loss: {:.4f}, Accuracy: {:.4f}, ECE: {:.4f}".format(num_data, loss, acc, ece))
+			test_results_list.append(np.array([num_data, loss, acc, ece]))
+		test_results_list = np.stack(test_results_list)
+		np.save(args.save_dir + '/test_results_tune_prior.npy', test_results_list)
+
+
 
 	###### LA ######
 	print("--------- LA ---------")
