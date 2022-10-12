@@ -79,7 +79,7 @@ python main.py --balanced --batch-size 100 --test-batch-size 100 \
                 --arch vit_base_patch16_224
 ```
 
-### BibTeX
+# BibTeX
 ```
 @inproceedings{
 deng2022accelerated,
