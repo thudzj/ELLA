@@ -78,3 +78,15 @@ python main.py --balanced --batch-size 100 --test-batch-size 100 \
                --sigma2 0.00001 --K 20 --M 2000 --I 80 --search-freq 100 --dataset imagenet \
                 --arch vit_base_patch16_224
 ```
+
+### BibTeX
+```
+@inproceedings{
+deng2022accelerated,
+title={Accelerated Linearized Laplace Approximation for Bayesian Deep Learning},
+author={Zhijie Deng and Feng Zhou and Jun Zhu},
+booktitle={Thirty-Sixth Conference on Neural Information Processing Systems},
+year={2022},
+url={https://openreview.net/forum?id=jftNpltMgz}
+}
+```
